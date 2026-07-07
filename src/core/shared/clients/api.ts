@@ -15,15 +15,6 @@ const DASHBOARD_API_URL =
 
 export const infra = createClient<CombinedPaths>({
   baseUrl: INFRA_API_URL,
-  fetch: ({ url, headers, body, method, ...options }) => {
-    return fetch(url, {
-      headers,
-      body,
-      method,
-      duplex: body ? 'half' : undefined,
-      ...options,
-    } as RequestInit)
-  },
   querySerializer: {
     array: { style: 'form', explode: false },
   },
@@ -31,15 +22,6 @@ export const infra = createClient<CombinedPaths>({
 
 export const api = createClient<DashboardPaths>({
   baseUrl: DASHBOARD_API_URL,
-  fetch: ({ url, headers, body, method, ...options }) => {
-    return fetch(url, {
-      headers,
-      body,
-      method,
-      duplex: body ? 'half' : undefined,
-      ...options,
-    } as RequestInit)
-  },
   querySerializer: {
     array: { style: 'form', explode: false },
   },
