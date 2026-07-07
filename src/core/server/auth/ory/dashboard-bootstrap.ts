@@ -30,9 +30,9 @@ type OryTokenClaims = {
 
 export async function ensureOryUserBootstrapped(
   input: BootstrapOryUserInput
-): Promise<boolean> {
+): Promise<{ success: boolean; userId?: string }> {
   const body = await createOryUserBootstrapRequest(input)
-  if (!body) return false
+  if (!body) return { success: false }
 
   return bootstrapOryUserWithRequest(body, input.provider)
 }
@@ -43,7 +43,7 @@ export async function createOryUserBootstrapRequest(
   | DashboardApiComponents['schemas']['AdminAuthProviderUserBootstrapRequest']
   | null
 > {
-  const claims = readBootstrapClaims(input)
+  const claims = await resolveBootstrapClaims(input)
   if (!claims) return null
 
   const signupMetadata = await readOrySignupMetadataCookie()
@@ -62,61 +62,109 @@ export async function createOryUserBootstrapRequest(
   } satisfies DashboardApiComponents['schemas']['AdminAuthProviderUserBootstrapRequest']
 }
 
-// Profile claims (issuer/email/name) prefer the cryptographically validated
-// id_token, falling back to the access token. The OIDC subject, however, stays
-// sourced from the access token — it is the bearer token dashboard-api receives
-// and validates, and is the stable key for the (issuer, user_id) mapping.
-function readBootstrapClaims(
+// Email resolution order:
+//   1. id_token / access_token claims (fastest)
+//   2. OIDC userinfo endpoint (when Hydra claim mapper omits email from tokens)
+//   3. Synthetic sub@issuer-host (stable unique identifier — avoids blocking login
+//      when Hydra is not configured to surface email)
+async function resolveBootstrapClaims(
   input: BootstrapOryUserInput
-): OryBootstrapClaims | null {
+): Promise<OryBootstrapClaims | null> {
   const idClaims = input.idToken
     ? decodeJwtClaims<OryTokenClaims>(input.idToken)
     : null
   const accessClaims = decodeJwtClaims<OryTokenClaims>(input.accessToken)
+
   const oidcIssuer =
     readStringClaim(idClaims, 'iss') ?? readStringClaim(accessClaims, 'iss')
   const oidcUserId =
     readStringClaim(accessClaims, 'sub') ?? readStringClaim(idClaims, 'sub')
-  const oidcUserEmail =
-    readStringClaim(idClaims, 'email') ?? readStringClaim(accessClaims, 'email')
   const oidcUserName =
     readDisplayName(idClaims) ?? readDisplayName(accessClaims)
 
-  if (!oidcIssuer || !oidcUserId || !oidcUserEmail) {
+  if (!oidcIssuer || !oidcUserId) {
     l.error(
       {
         key: 'auth_events:bootstrap_user:missing_claims',
         context: {
           provider: input.provider,
           access_token_format: tokenFormat(input.accessToken),
-          id_token_format: input.idToken
-            ? tokenFormat(input.idToken)
-            : 'missing',
-          has_access_claims: !!accessClaims,
-          has_id_claims: !!idClaims,
+          id_token_format: input.idToken ? tokenFormat(input.idToken) : 'missing',
           has_iss: !!oidcIssuer,
           has_sub: !!oidcUserId,
-          has_email: !!oidcUserEmail,
-          has_name: !!oidcUserName,
         },
       },
-      'Ory access token is missing required bootstrap claims'
+      'Ory token is missing required iss/sub claims'
     )
     return null
   }
 
-  return {
-    oidcIssuer,
-    oidcUserId,
-    oidcUserEmail,
-    oidcUserName,
+  // 1. Try token claims
+  let oidcUserEmail =
+    readStringClaim(idClaims, 'email') ?? readStringClaim(accessClaims, 'email')
+
+  // 2. Fall back to userinfo endpoint
+  if (!oidcUserEmail) {
+    oidcUserEmail = await fetchEmailFromUserinfo(input.accessToken, oidcIssuer)
+    if (oidcUserEmail) {
+      l.info(
+        { key: 'auth_events:bootstrap_user:email_from_userinfo' },
+        'email resolved from userinfo endpoint'
+      )
+    }
+  }
+
+  // 3. Synthetic identifier when Hydra claim mapper is not configured
+  if (!oidcUserEmail) {
+    try {
+      const issuerHost = new URL(oidcIssuer).hostname
+      oidcUserEmail = `${oidcUserId}@${issuerHost}`
+      l.warn(
+        {
+          key: 'auth_events:bootstrap_user:synthetic_email',
+          context: { provider: input.provider, synthetic_email: oidcUserEmail },
+        },
+        'email not in tokens or userinfo; using synthetic identifier — configure Hydra claim mapper to expose email'
+      )
+    } catch {
+      l.error(
+        {
+          key: 'auth_events:bootstrap_user:missing_claims',
+          context: { provider: input.provider },
+        },
+        'email missing and issuer URL is invalid; cannot construct synthetic email'
+      )
+      return null
+    }
+  }
+
+  return { oidcIssuer, oidcUserId, oidcUserEmail, oidcUserName }
+}
+
+// Calls the OIDC userinfo endpoint to get email when absent from the tokens.
+// Returns null on any error so the caller can fall back gracefully.
+async function fetchEmailFromUserinfo(
+  accessToken: string,
+  issuer: string
+): Promise<string | null> {
+  try {
+    const userinfoUrl = new URL('/userinfo', issuer).toString()
+    const res = await fetch(userinfoUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    return typeof data.email === 'string' && data.email ? data.email : null
+  } catch {
+    return null
   }
 }
 
 async function bootstrapOryUserWithRequest(
   body: DashboardApiComponents['schemas']['AdminAuthProviderUserBootstrapRequest'],
   provider?: string
-): Promise<boolean> {
+): Promise<{ success: boolean; userId?: string }> {
   try {
     const bootstrapResult =
       await createAdminUsersRepository().bootstrapAuthProviderUser(body)
@@ -135,22 +183,20 @@ async function bootstrapOryUserWithRequest(
         },
         `bootstrap_user failed: ${bootstrapResult.error.message}`
       )
-      return false
+      return { success: false }
     }
 
-    return true
+    return { success: true, userId: bootstrapResult.data.userId }
   } catch (error) {
     l.error(
       {
         key: 'auth_events:bootstrap_user:exception',
-        context: {
-          provider,
-        },
+        context: { provider },
         error: serializeErrorForLog(error),
       },
       'bootstrap_user threw unexpected exception'
     )
-    return false
+    return { success: false }
   }
 }
 

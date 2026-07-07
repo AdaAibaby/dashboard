@@ -51,7 +51,7 @@ export async function refreshSessionTokens(
     token_endpoint: `${env.issuer.href.replace(/\/$/, '')}/oauth2/token`,
   }
   const client: oauth.Client = { client_id: env.clientId }
-  const clientAuth = oauth.ClientSecretBasic(env.clientSecret)
+  const clientAuth = oauth.ClientSecretPost(env.clientSecret)
 
   try {
     const response = await oauth.refreshTokenGrantRequest(

@@ -7,5 +7,6 @@ type PageProps = {
 
 export default async function Page({ searchParams }: PageProps) {
   const { returnTo } = await searchParams
-  redirect(buildOryStartURL('signup', returnTo))
+  const base = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ?? ''
+  redirect(base + buildOryStartURL('signup', returnTo))
 }

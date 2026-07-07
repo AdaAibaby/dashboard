@@ -96,7 +96,7 @@ export async function resolveUserTeam(
       return null
     }
 
-    return bootstrapResult.data
+    return { id: bootstrapResult.data.teamId, slug: bootstrapResult.data.teamSlug }
   }
 
   const defaultTeam = teamsResult.data.find(

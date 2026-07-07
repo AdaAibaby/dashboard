@@ -27,7 +27,9 @@ import { l, serializeErrorForLog } from '@/core/shared/clients/logger/logger'
 // (PKCE S256, state, nonce), stashes the verifier/state/nonce in a short-lived
 // httpOnly cookie for the callback, and redirects the browser to Hydra.
 export async function GET(request: NextRequest) {
-  const origin = request.nextUrl.origin
+  // NEXT_PUBLIC_SITE_URL overrides request.nextUrl.origin for self-hosted deployments
+  // where Next.js reports the internal container address instead of the external URL.
+  const origin = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') || request.nextUrl.origin
   const intent = readOryAuthIntent(request.nextUrl.searchParams.get('intent'))
 
   if (!intent) {

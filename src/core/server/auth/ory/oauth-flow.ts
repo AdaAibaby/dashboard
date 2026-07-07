@@ -12,7 +12,7 @@ export const E2B_OAUTH_FLOW_COOKIE = 'e2b_oauth_flow'
 
 // The registered redirect_uri. Must be byte-identical between the authorization
 // request and the token exchange, so both routes derive it from this constant.
-export const OAUTH_CALLBACK_PATH = '/api/auth/oauth/callback/ory'
+export const OAUTH_CALLBACK_PATH = '/sso/xiaobei/callback'
 
 // Failures across the OAuth flow land here. The recover route's one-shot guard
 // retries once (via /sign-in → /start, minting a fresh flow cookie) before

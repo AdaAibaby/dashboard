@@ -86,6 +86,11 @@ export async function runDashboardProxy(
   // dead refresh here would delete the cookie out of the propagated request
   // before the handler reads it, breaking RP-initiated logout (Kratos/Hydra
   // would never end the session), so skip the refresh for them.
+  if (process.env.NODE_ENV !== 'production') {
+    const rawCookiePresent = !!request.cookies.get('e2b_session')?.value
+    console.log('[proxy-runtime] RAW path=', request.nextUrl.pathname, 'raw_cookie_present=', rawCookiePresent)
+  }
+
   const session = isAuthEndpointRoute(request.nextUrl.pathname)
     ? skipRefresh
     : await refreshSessionCookie(request)
@@ -98,8 +103,16 @@ export async function runDashboardProxy(
   // A valid API token must also be present; without one we skip whoami and let
   // the redirect re-mint a token (or surface the login UI) through the OAuth
   // start route.
+  if (process.env.NODE_ENV !== 'production') {
+    const hasCookie = !!request.cookies.get('e2b_session')?.value
+    console.log('[proxy-runtime] AFTER_REFRESH path=', request.nextUrl.pathname, 'has_e2b_cookie=', hasCookie, 'session.hasToken=', session.hasToken)
+  }
+  // Self-hosted OIDC mode: Kratos session cookie is set on auth.xiaobei.top domain
+  // and is not forwarded to the dashboard domain. Use e2b_session (Hydra token)
+  // as the sole authentication signal — it is PKCE-verified and sealed with
+  // E2B_SESSION_SECRET, so it is trustworthy without an additional whoami call.
   const isAuthenticated =
-    session.hasToken && (await isKratosSessionActive(request))
+    session.hasToken || (!!process.env.NEXT_PUBLIC_ORY_SDK_URL && (await isKratosSessionActive(request)))
 
   const authRouteRedirect = getAuthRouteRedirect(request, isAuthenticated)
   if (authRouteRedirect) return session.persist(authRouteRedirect)
@@ -151,8 +164,17 @@ async function refreshSessionCookie(
   }
 
   if (result.status === 'dead') {
-    // The refresh token is unusable. Drop the cookie; the gate then re-mints
-    // from the live Kratos session (or routes to the login UI).
+    // If the access token hasn't actually expired yet (we're just within the
+    // refresh skew window), keep serving it rather than forcing re-auth.
+    // This handles Hydra-only setups where refresh tokens may be unavailable.
+    const now = Math.floor(Date.now() / 1000)
+    if (tokens.expiresAt === 0 || now < tokens.expiresAt) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[proxy-runtime] dead refresh but token still valid, expiresAt=', tokens.expiresAt, 'now=', now)
+      }
+      return { hasToken: true, persist: noPersist }
+    }
+    // Token is truly expired AND refresh is dead — force re-authentication.
     request.cookies.delete(E2B_SESSION_COOKIE)
     return {
       hasToken: false,

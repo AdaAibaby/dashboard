@@ -1,7 +1,6 @@
 import 'server-only'
 
 import { ADMIN_AUTH_HEADERS } from '@/configs/api'
-import type { ResolvedTeam } from '@/core/modules/teams/models'
 import { api } from '@/core/shared/clients/api'
 import type { components as DashboardApiComponents } from '@/core/shared/contracts/dashboard-api.types'
 import { repoErrorFromHttp } from '@/core/shared/errors'
@@ -9,6 +8,12 @@ import { err, ok, type RepoResult } from '@/core/shared/result'
 
 export type AdminAuthProviderUserBootstrapRequest =
   DashboardApiComponents['schemas']['AdminAuthProviderUserBootstrapRequest']
+
+type BootstrapResult = {
+  teamId: string
+  teamSlug: string
+  userId?: string
+}
 
 type AdminUsersRepositoryDeps = {
   apiClient: typeof api
@@ -19,7 +24,7 @@ type AdminUsersRepositoryDeps = {
 export interface AdminUsersRepository {
   bootstrapAuthProviderUser(
     body: AdminAuthProviderUserBootstrapRequest
-  ): Promise<RepoResult<ResolvedTeam>>
+  ): Promise<RepoResult<BootstrapResult>>
 }
 
 export function createAdminUsersRepository(
@@ -41,27 +46,41 @@ export function createAdminUsersRepository(
         )
       }
 
-      const { data, error, response } = await deps.apiClient.POST(
-        '/admin/users/bootstrap',
+      const dashboardApiUrl =
+        process.env.NEXT_PUBLIC_DASHBOARD_API_URL ??
+        `https://dashboard-api.${process.env.NEXT_PUBLIC_E2B_DOMAIN}`
+      const rawResponse = await fetch(
+        `${dashboardApiUrl}/admin/users/bootstrap`,
         {
-          body,
-          headers: deps.adminHeaders(deps.adminToken),
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...deps.adminHeaders(deps.adminToken),
+          },
+          body: JSON.stringify(body),
+          cache: 'no-store',
         }
       )
 
-      if (!response.ok || error || !data) {
+      if (!rawResponse.ok) {
+        const errorBody: { message?: string } | null = await rawResponse
+          .json()
+          .catch(() => null)
         return err(
           repoErrorFromHttp(
-            response.status,
-            error?.message ?? 'Failed to bootstrap user',
-            error
+            rawResponse.status,
+            errorBody?.message ?? 'Failed to bootstrap user',
+            errorBody
           )
         )
       }
 
+      const data: { id: string; slug: string; user_id?: string } =
+        await rawResponse.json()
       return ok({
-        id: data.id,
-        slug: data.slug,
+        teamId: data.id,
+        teamSlug: data.slug,
+        userId: data.user_id,
       })
     },
   }

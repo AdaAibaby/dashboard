@@ -5,7 +5,7 @@ import {
   type OryAuthIntent,
 } from './build-start-url'
 
-// Hand-owned Hydra OIDC client (confidential, client_secret_basic) built on
+// Hand-owned Hydra OIDC client (confidential, client_secret_post) built on
 // oauth4webapi. PKCE (S256) is always used even though the client is
 // confidential — it protects against authorization-code injection regardless of
 // client type. No next/headers import so this stays importable from the edge
@@ -137,7 +137,7 @@ export async function exchangeOryCallback(params: {
   const env = readOryOAuthEnv()
   const as = await discoverAuthorizationServer(env)
   const client = oryClient(env)
-  const clientAuth = oauth.ClientSecretBasic(env.clientSecret)
+  const clientAuth = oauth.ClientSecretPost(env.clientSecret)
 
   const callbackParams = oauth.validateAuthResponse(
     as,

@@ -24,12 +24,22 @@ import {
 import { l, serializeErrorForLog } from '@/core/shared/clients/logger/logger'
 import { relativeUrlSchema } from '@/core/shared/schemas/url'
 
-// Hydra redirects here with ?code after Kratos created the session. We exchange
-// the code (validating state/nonce/PKCE), provision the dashboard user from the
-// id_token, then seal the OIDC tokens into e2b_session. Kratos already owns the
-// session at this point — this cookie only carries tokens for API access.
 export async function GET(request: NextRequest) {
-  const origin = request.nextUrl.origin
+  const origin =
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ||
+    request.nextUrl.origin
+
+  l.info(
+    {
+      key: 'oauth_callback:start',
+      origin,
+      requestUrl: request.url,
+      nextUrl: request.nextUrl.toString(),
+      hasSiteUrl: !!process.env.NEXT_PUBLIC_SITE_URL,
+    },
+    'OAuth callback started'
+  )
+
   const flow = await openOryFlowState(
     request.cookies.get(E2B_OAUTH_FLOW_COOKIE)?.value
   )
@@ -45,13 +55,10 @@ export async function GET(request: NextRequest) {
   let tokens: Awaited<ReturnType<typeof exchangeOryCallback>>
   try {
     tokens = await exchangeOryCallback({
-      // A genuine global URL — oauth4webapi rejects NextURL (not `instanceof URL`).
       currentUrl: new URL(request.url),
       expectedState: flow.state,
       expectedNonce: flow.nonce,
       codeVerifier: flow.codeVerifier,
-      // Must be byte-identical to the authorize-time value (the registered
-      // relay URI on previews), not the host the code was delivered to.
       redirectUri: resolveOryRedirectUri(origin).redirectUri,
     })
   } catch (error) {
@@ -65,26 +72,33 @@ export async function GET(request: NextRequest) {
     return finalize(NextResponse.redirect(new URL(ORY_RECOVER_PATH, origin)))
   }
 
-  // Bootstrap links the Kratos identity to its dashboard user and backfills
-  // external_id. Once that's set the user is fully provisioned, so skip the admin
-  // call on repeat logins. A null read (e.g. session cookie not yet visible) falls
-  // through to bootstrap — identical to the prior unconditional behavior.
-  const alreadyProvisioned = await readKratosExternalId()
+  l.info(
+    {
+      key: 'oauth_callback:tokens_received',
+      hasAccessToken: !!tokens.accessToken,
+      hasRefreshToken: !!tokens.refreshToken,
+      hasIdToken: !!tokens.idToken,
+      expiresAt: tokens.expiresAt,
+    },
+    'OAuth tokens received'
+  )
 
+  const alreadyProvisioned = await readKratosExternalId()
+  l.info({ key: 'oauth_callback:provisioned_check', alreadyProvisioned }, 'Provisioning check')
+
+  let bootstrapUserId: string | undefined
   if (!alreadyProvisioned) {
-    const bootstrapped = await ensureOryUserBootstrapped({
+    const bootstrapResult = await ensureOryUserBootstrapped({
       accessToken: tokens.accessToken,
       idToken: tokens.idToken,
       provider: 'ory',
     })
 
-    if (!bootstrapped) {
+    if (!bootstrapResult.success) {
       l.error(
         { key: 'oauth_callback:bootstrap_failed' },
         'dashboard bootstrap failed; ending the Ory session without a dashboard cookie'
       )
-      // Don't strand the user with a half-provisioned login: end the Ory + Kratos
-      // session via RP-logout (falling back to home if no id_token is available).
       const logoutUrl = tokens.idToken
         ? await buildOryLogoutUrl({ idToken: tokens.idToken, origin })
         : null
@@ -94,6 +108,13 @@ export async function GET(request: NextRequest) {
         )
       )
     }
+    bootstrapUserId = bootstrapResult.userId
+    l.info({ key: 'oauth_callback:bootstrap_success', bootstrapUserId }, 'Bootstrap succeeded')
+  } else {
+    l.warn(
+      { key: 'oauth_callback:already_provisioned_no_userid' },
+      'User already provisioned via Kratos — userId NOT included in cookie (Hydra-only path may fail!)'
+    )
   }
 
   const sealed = await sealSessionCookie({
@@ -101,26 +122,81 @@ export async function GET(request: NextRequest) {
     refreshToken: tokens.refreshToken,
     idToken: tokens.idToken,
     expiresAt: tokens.expiresAt,
+    userId: bootstrapUserId,
   })
 
-  // Re-validate here too: the flow cookie is read back as a raw string, and
-  // `new URL()` would otherwise escape the origin on a crafted returnTo.
   const parsedReturnTo = relativeUrlSchema.safeParse(flow.returnTo)
   const destination = parsedReturnTo.success
     ? parsedReturnTo.data
     : PROTECTED_URLS.DASHBOARD
-  const response = finalize(NextResponse.redirect(new URL(destination, origin)))
+
+  const finalUrl = new URL(destination, origin).toString()
+  const hydrateUrl = new URL('/api/auth/session-hydrate', origin).toString()
+
+  l.info(
+    {
+      key: 'oauth_callback:urls',
+      origin,
+      finalUrl,
+      hydrateUrl,
+      sealedLen: sealed.length,
+      cookieDomain: new URL(origin).host,
+      userId: bootstrapUserId,
+    },
+    'OAuth callback: prepared URLs and cookie'
+  )
+
+  const finalUrlJson = JSON.stringify(finalUrl)
+  const hydrateUrlJson = JSON.stringify(hydrateUrl)
+  const sealedJson = JSON.stringify(sealed)
+
+  const html =
+    '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+    '<style>body{font:13px monospace;background:#111;color:#0f0;padding:16px;}' +
+    '#s{white-space:pre-wrap;}</style></head><body>' +
+    '<div id="s">STEP1: page loaded</div>' +
+    '<script>(function(){' +
+    'var el=document.getElementById("s");' +
+    'function log(m){el.textContent+="\n"+m;console.log("[callback-debug]",m);}' +
+    'var u=' + finalUrlJson + ';' +
+    'var h=' + hydrateUrlJson + ';' +
+    'var t=' + sealedJson + ';' +
+    'log("STEP2: token len="+t.length+" origin="+location.origin);' +
+    'log("STEP3: fetch -> "+h);' +
+    'log("STEP3b: page_origin="+location.origin+" same_origin="+(location.origin===new URL(h).origin));' +
+    'fetch(h,{method:"POST",credentials:"same-origin",' +
+    'headers:{"Content-Type":"application/json"},' +
+    'body:JSON.stringify({token:t})})' +
+    '.then(function(r){log("FETCH_OK status="+r.status);return r.json();})' +
+    '.then(function(d){log("FETCH_JSON "+JSON.stringify(d));})' +
+    '.catch(function(e){log("FETCH_ERR "+e.message+" (type="+e.name+")");})' +
+    '.finally(function(){' +
+    'log("STEP4: navigating in 4s -> "+u);' +
+    'setTimeout(function(){window.location.replace(u);},4000);' +
+    '});' +
+    'setTimeout(function(){log("TIMEOUT_8s: navigating now");window.location.replace(u);},8000);' +
+    '})()</script></body></html>'
+
+  const response = finalize(
+    new NextResponse(html, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+      },
+    })
+  )
   response.cookies.set(
     E2B_SESSION_COOKIE,
     sealed,
-    sessionCookieOptions(request.nextUrl.host)
+    sessionCookieOptions(new URL(origin).host)
   )
   return response
 }
 
-// Clears the one-shot transient cookies on every exit path.
 function finalize(response: NextResponse): NextResponse {
   response.cookies.delete(E2B_OAUTH_FLOW_COOKIE)
   response.cookies.delete(ORY_SIGNUP_METADATA_COOKIE)
+  response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
   return response
 }

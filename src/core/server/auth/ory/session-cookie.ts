@@ -40,6 +40,9 @@ export type SessionTokens = {
   idToken?: string
   // Absolute access-token expiry, epoch seconds.
   expiresAt: number
+  // Dashboard public.users.id — set during OAuth bootstrap for Hydra-only
+  // setups where no Kratos session exists to carry the external_id.
+  userId?: string
 }
 
 export type SessionCookieOptions = {
@@ -60,12 +63,14 @@ export type SessionCookieDeleteOptions = {
 export async function sealSessionCookie(
   tokens: SessionTokens
 ): Promise<string> {
-  return new EncryptJWT({
+  const payload: Record<string, unknown> = {
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
     idToken: tokens.idToken,
     expiresAt: tokens.expiresAt,
-  })
+  }
+  if (tokens.userId) payload.userId = tokens.userId
+  return new EncryptJWT(payload)
     .setProtectedHeader({ alg: KEY_ALGORITHM, enc: CONTENT_ENCRYPTION })
     .setIssuedAt()
     .encrypt(await deriveKey())
@@ -131,7 +136,7 @@ export function resolveSessionCookieDomain(
 }
 
 function parseTokens(payload: Record<string, unknown>): SessionTokens | null {
-  const { accessToken, refreshToken, idToken, expiresAt } = payload
+  const { accessToken, refreshToken, idToken, expiresAt, userId } = payload
   if (typeof accessToken !== 'string' || typeof expiresAt !== 'number') {
     return null
   }
@@ -141,5 +146,6 @@ function parseTokens(payload: Record<string, unknown>): SessionTokens | null {
     refreshToken: typeof refreshToken === 'string' ? refreshToken : undefined,
     idToken: typeof idToken === 'string' ? idToken : undefined,
     expiresAt,
+    userId: typeof userId === 'string' ? userId : undefined,
   }
 }

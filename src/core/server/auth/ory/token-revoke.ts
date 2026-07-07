@@ -33,7 +33,7 @@ export async function revokeSessionTokens(
     revocation_endpoint: `${env.issuer.href.replace(/\/$/, '')}/oauth2/revoke`,
   }
   const client: oauth.Client = { client_id: env.clientId }
-  const clientAuth = oauth.ClientSecretBasic(env.clientSecret)
+  const clientAuth = oauth.ClientSecretPost(env.clientSecret)
 
   try {
     const response = await oauth.revocationRequest(

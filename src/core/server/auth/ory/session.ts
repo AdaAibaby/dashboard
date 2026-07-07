@@ -4,6 +4,7 @@ import { getServerSession } from '@ory/nextjs/app'
 import { cookies, headers } from 'next/headers'
 import { cache } from 'react'
 import { PROTECTED_URLS } from '@/configs/urls'
+import { decodeJwtClaims, readStringClaim } from './jwt-claims'
 import { l, serializeErrorForLog } from '@/core/shared/clients/logger/logger'
 import type {
   AuthContext,
@@ -51,7 +52,9 @@ const ACCOUNT_SETTINGS_REAUTH_RETURN_TO = `${PROTECTED_URLS.ACCOUNT_SETTINGS}?re
 
 export async function getAuthContext(): Promise<AuthContext | null> {
   const kratos = await readKratosSession()
-  if (!kratos?.active || !kratos.identity) return null
+  if (!kratos?.active || !kratos.identity) {
+    return readAuthContextFromSessionCookie()
+  }
 
   // public.users.id lives only on the Kratos identity's external_id. Without it
   // the dashboard can't key the user to its own records (PostHog, telemetry,
@@ -77,6 +80,50 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     accessToken: tokens.accessToken,
   }
 }
+
+// Hydra-only fallback: derive auth context from the sealed e2b_session cookie.
+// Called when Kratos is absent (GET /sessions/whoami returns non-OK).
+// The cookie holds userId (public.users.id) written during OAuth bootstrap.
+async function readAuthContextFromSessionCookie(): Promise<AuthContext | null> {
+  const tokens = await readSessionTokens()
+  if (!tokens?.accessToken || !tokens.userId) return null
+
+  const now = Math.floor(Date.now() / 1000)
+  if (tokens.expiresAt > 0 && now > tokens.expiresAt) return null
+
+  type HydraJwtClaims = Record<string, unknown>
+  const idClaims = tokens.idToken
+    ? decodeJwtClaims<HydraJwtClaims>(tokens.idToken)
+    : null
+  const accessClaims = decodeJwtClaims<HydraJwtClaims>(tokens.accessToken)
+
+  const sub =
+    readStringClaim(accessClaims, 'sub') ??
+    readStringClaim(idClaims, 'sub')
+  if (!sub) return null
+
+  const displayName =
+    readStringClaim(idClaims, 'name') ??
+    readStringClaim(idClaims, 'given_name') ??
+    readStringClaim(idClaims, 'preferred_username') ??
+    readStringClaim(accessClaims, 'name') ??
+    readStringClaim(accessClaims, 'preferred_username')
+
+  return {
+    user: {
+      id: tokens.userId,
+      identityId: sub,
+      email: null,
+      name: displayName,
+      avatarUrl: null,
+      providers: ['oidc'],
+      canChangeEmail: false,
+      canChangePassword: false,
+    },
+    accessToken: tokens.accessToken,
+  }
+}
+
 
 // external_id is set by bootstrap and lives only on the Kratos identity (never in
 // the token claims). A non-null value means the user is already provisioned, so

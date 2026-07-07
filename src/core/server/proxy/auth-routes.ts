@@ -15,15 +15,16 @@ export function getAuthRouteRedirect(
   request: NextRequest,
   isAuthenticated = false
 ): NextResponse | null {
+  const base = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ?? request.url
   const intent = getAuthIntentFromPath(request.nextUrl.pathname)
   if (!intent) return null
 
   if (isAuthenticated) {
-    return NextResponse.redirect(new URL(PROTECTED_URLS.DASHBOARD, request.url))
+    return NextResponse.redirect(new URL(PROTECTED_URLS.DASHBOARD, base))
   }
 
   const returnTo = request.nextUrl.searchParams.get('returnTo') ?? undefined
-  const target = new URL(buildOryStartURL(intent, returnTo), request.url)
+  const target = new URL(buildOryStartURL(intent, returnTo), base)
 
   return NextResponse.redirect(target)
 }

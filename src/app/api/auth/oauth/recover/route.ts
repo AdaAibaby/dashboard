@@ -18,8 +18,11 @@ export async function GET(request: NextRequest) {
     'OAuth flow failed; recovering user once before bailing to home'
   )
 
+  // Use NEXT_PUBLIC_SITE_URL as base; request.url is the internal container
+  // address (https://localhost:3000) which is unreachable from the browser.
+  const base = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ?? request.nextUrl.origin
   const destination = alreadyAttempted ? '/' : AUTH_URLS.SIGN_IN
-  const response = NextResponse.redirect(new URL(destination, request.url))
+  const response = NextResponse.redirect(new URL(destination, base))
 
   if (alreadyAttempted) {
     response.cookies.delete(RECOVERY_COOKIE)
