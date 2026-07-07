@@ -3,7 +3,7 @@ import { relativeUrlSchema } from '@/core/shared/schemas/url'
 export type OryAuthIntent = 'signin' | 'signup' | 'reauth'
 
 export type OryAuthorizationParams =
-  | { prompt: 'registration' | 'login' }
+  | { prompt: 'registration' | 'login' | 'login registration' }
   | undefined
 
 const ORY_START_PATH = '/api/auth/oauth/start'
@@ -38,7 +38,7 @@ export function readOryAuthIntent(value: string | null): OryAuthIntent | null {
 export function authorizationParamsForOryIntent(
   intent: OryAuthIntent
 ): OryAuthorizationParams {
-  if (intent === 'signup') return { prompt: 'registration' }
+  if (intent === 'signup') return { prompt: 'login registration' }
   if (intent === 'reauth') return { prompt: 'login' }
   return undefined
 }
