@@ -11,15 +11,23 @@ const INTENT_BY_PATH: Record<string, OryAuthIntent> = {
   '/forgot-password': 'signin',
 }
 
+// Auth routes that should redirect an already-authenticated user straight to
+// the dashboard instead of starting another OAuth round-trip.
+const REDIRECT_AUTHENTICATED_TO_DASHBOARD = new Set(['/sign-in', '/forgot-password'])
+
 export function getAuthRouteRedirect(
   request: NextRequest,
   isAuthenticated = false
 ): NextResponse | null {
   const base = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ?? request.url
-  const intent = getAuthIntentFromPath(request.nextUrl.pathname)
+  const path = normalizeAuthPath(request.nextUrl.pathname)
+  const intent = INTENT_BY_PATH[path] ?? null
   if (!intent) return null
 
-  if (isAuthenticated) {
+  // Already logged-in users visiting sign-in/forgot-password go straight to
+  // the dashboard. sign-up always goes through the OAuth flow with
+  // prompt=registration so the user can register a new account.
+  if (isAuthenticated && REDIRECT_AUTHENTICATED_TO_DASHBOARD.has(path)) {
     return NextResponse.redirect(new URL(PROTECTED_URLS.DASHBOARD, base))
   }
 

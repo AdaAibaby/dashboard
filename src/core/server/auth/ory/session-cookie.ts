@@ -1,25 +1,15 @@
 import { EncryptJWT, jwtDecrypt } from 'jose'
 import { CONTENT_ENCRYPTION, deriveKey, KEY_ALGORITHM } from './cookie-crypto'
 
-// The single encrypted cookie that carries the Hydra OIDC tokens for API
-// access. Kratos owns the session; this cookie is never the auth gate — it is
-// read by getAuthContext for the access token and refreshed by the middleware.
-// No next/headers import here so the module stays usable from edge middleware.
-
 export const E2B_SESSION_COOKIE = 'e2b_session'
 
 export const ORY_SIGNUP_METADATA_COOKIE = 'e2b-ory-signup-metadata'
 
-// Cookies the dashboard owns — never forwarded across the Ory trust boundary.
 const APP_OWNED_COOKIES = new Set<string>([
   E2B_SESSION_COOKIE,
   ORY_SIGNUP_METADATA_COOKIE,
 ])
 
-// Serializes a cookie list into a `Cookie` header for forwarding to Ory, with
-// the app-owned cookies stripped. Takes the cookie list rather than reading
-// next/headers so it stays edge-safe and serves both the middleware
-// (NextRequest cookies) and server components (next/headers cookies).
 export function cookieHeaderWithoutAppOwned(
   cookieList: ReadonlyArray<{ name: string; value: string }>
 ): string {
@@ -29,19 +19,13 @@ export function cookieHeaderWithoutAppOwned(
     .join('; ')
 }
 
-// Persist across browser restarts. The cookie only caches tokens — a stale or
-// expired cookie is re-minted from the live Kratos session, so the lifetime is
-// intentionally generous and not the security boundary.
 const SESSION_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
 
 export type SessionTokens = {
   accessToken: string
   refreshToken?: string
   idToken?: string
-  // Absolute access-token expiry, epoch seconds.
   expiresAt: number
-  // Dashboard public.users.id — set during OAuth bootstrap for Hydra-only
-  // setups where no Kratos session exists to carry the external_id.
   userId?: string
 }
 
@@ -60,13 +44,17 @@ export type SessionCookieDeleteOptions = {
   domain?: string
 }
 
+// Only the access token (needed for API calls), expiresAt (for refresh checks),
+// and userId (required by session.ts validation) are stored in the cookie.
+// refreshToken and idToken are intentionally omitted to keep the cookie under
+// ~2 KB — volcalb CDN rejects HTTP responses with Set-Cookie headers > ~3.9 KB.
+// The Hydra access token has a ~1-year TTL so seamless refresh is not needed.
+// RP-initiated logout degrades to local-only when idToken is absent.
 export async function sealSessionCookie(
   tokens: SessionTokens
 ): Promise<string> {
   const payload: Record<string, unknown> = {
     accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken,
-    idToken: tokens.idToken,
     expiresAt: tokens.expiresAt,
   }
   if (tokens.userId) payload.userId = tokens.userId
@@ -96,16 +84,12 @@ export function sessionCookieOptions(
     httpOnly: true,
     sameSite: 'lax',
     path: '/',
-    // Vercel deployments (preview + production) build with NODE_ENV=production
-    // and serve over HTTPS; local `next dev` is plain-HTTP loopback.
     secure: process.env.NODE_ENV === 'production',
     maxAge: SESSION_COOKIE_MAX_AGE_SECONDS,
     domain: resolveSessionCookieDomain(host),
   }
 }
 
-// Deleting a domain-scoped cookie requires the same domain attribute, so the
-// clear paths must pass these options rather than the bare cookie name.
 export function sessionCookieDeleteOptions(
   host?: string | null
 ): SessionCookieDeleteOptions {
@@ -116,11 +100,6 @@ export function sessionCookieDeleteOptions(
   }
 }
 
-// Scope the cookie to the parent domain (e.g. `.e2b-staging.dev`) so it is
-// shared across every subdomain of the deployment environment instead of being
-// pinned to the exact host. Hosts that don't belong to NEXT_PUBLIC_E2B_DOMAIN
-// (localhost, Vercel preview URLs) get a host-only cookie — a `.dev` domain
-// attribute there would be rejected by the browser.
 export function resolveSessionCookieDomain(
   host: string | null | undefined
 ): string | undefined {

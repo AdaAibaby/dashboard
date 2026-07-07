@@ -12,15 +12,14 @@ import {
 import { resolveOryRedirectUri } from '@/core/server/auth/ory/oauth-relay'
 import { readKratosExternalId } from '@/core/server/auth/ory/session'
 import {
-  E2B_SESSION_COOKIE,
   ORY_SIGNUP_METADATA_COOKIE,
   sealSessionCookie,
-  sessionCookieOptions,
 } from '@/core/server/auth/ory/session-cookie'
 import {
   buildOryLogoutUrl,
   ORY_POST_LOGOUT_PATH,
 } from '@/core/server/auth/ory/signout'
+import { storePendingJwe } from '@/core/server/auth/ory/pending-tokens'
 import { l, serializeErrorForLog } from '@/core/shared/clients/logger/logger'
 import { relativeUrlSchema } from '@/core/shared/schemas/url'
 
@@ -34,7 +33,6 @@ export async function GET(request: NextRequest) {
       key: 'oauth_callback:start',
       origin,
       requestUrl: request.url,
-      nextUrl: request.nextUrl.toString(),
       hasSiteUrl: !!process.env.NEXT_PUBLIC_SITE_URL,
     },
     'OAuth callback started'
@@ -83,39 +81,36 @@ export async function GET(request: NextRequest) {
     'OAuth tokens received'
   )
 
+  // readKratosExternalId checks for an active Kratos session. In Hydra-only
+  // setups (no Kratos), this always returns null. We log the value for
+  // diagnostics but ALWAYS call ensureOryUserBootstrapped so we get a userId
+  // regardless — the session cookie validation requires userId (session.ts:89).
   const alreadyProvisioned = await readKratosExternalId()
   l.info({ key: 'oauth_callback:provisioned_check', alreadyProvisioned }, 'Provisioning check')
 
-  let bootstrapUserId: string | undefined
-  if (!alreadyProvisioned) {
-    const bootstrapResult = await ensureOryUserBootstrapped({
-      accessToken: tokens.accessToken,
-      idToken: tokens.idToken,
-      provider: 'ory',
-    })
+  const bootstrapResult = await ensureOryUserBootstrapped({
+    accessToken: tokens.accessToken,
+    idToken: tokens.idToken,
+    provider: 'ory',
+  })
 
-    if (!bootstrapResult.success) {
-      l.error(
-        { key: 'oauth_callback:bootstrap_failed' },
-        'dashboard bootstrap failed; ending the Ory session without a dashboard cookie'
+  if (!bootstrapResult.success) {
+    l.error(
+      { key: 'oauth_callback:bootstrap_failed' },
+      'dashboard bootstrap failed; ending the Ory session without a dashboard cookie'
+    )
+    const logoutUrl = tokens.idToken
+      ? await buildOryLogoutUrl({ idToken: tokens.idToken, origin })
+      : null
+    return finalize(
+      NextResponse.redirect(
+        logoutUrl ?? new URL(ORY_POST_LOGOUT_PATH, origin)
       )
-      const logoutUrl = tokens.idToken
-        ? await buildOryLogoutUrl({ idToken: tokens.idToken, origin })
-        : null
-      return finalize(
-        NextResponse.redirect(
-          logoutUrl ?? new URL(ORY_POST_LOGOUT_PATH, origin)
-        )
-      )
-    }
-    bootstrapUserId = bootstrapResult.userId
-    l.info({ key: 'oauth_callback:bootstrap_success', bootstrapUserId }, 'Bootstrap succeeded')
-  } else {
-    l.warn(
-      { key: 'oauth_callback:already_provisioned_no_userid' },
-      'User already provisioned via Kratos — userId NOT included in cookie (Hydra-only path may fail!)'
     )
   }
+
+  const bootstrapUserId = bootstrapResult.userId
+  l.info({ key: 'oauth_callback:bootstrap_success', bootstrapUserId }, 'Bootstrap succeeded')
 
   const sealed = await sealSessionCookie({
     accessToken: tokens.accessToken,
@@ -131,67 +126,29 @@ export async function GET(request: NextRequest) {
     : PROTECTED_URLS.DASHBOARD
 
   const finalUrl = new URL(destination, origin).toString()
-  const hydrateUrl = new URL('/api/auth/session-hydrate', origin).toString()
 
   l.info(
     {
       key: 'oauth_callback:urls',
       origin,
       finalUrl,
-      hydrateUrl,
       sealedLen: sealed.length,
       cookieDomain: new URL(origin).host,
       userId: bootstrapUserId,
     },
-    'OAuth callback: prepared URLs and cookie'
+    'OAuth callback: storing JWE and redirecting to session-finalize'
   )
 
-  const finalUrlJson = JSON.stringify(finalUrl)
-  const hydrateUrlJson = JSON.stringify(hydrateUrl)
-  const sealedJson = JSON.stringify(sealed)
-
-  const html =
-    '<!DOCTYPE html><html><head><meta charset="utf-8">' +
-    '<style>body{font:13px monospace;background:#111;color:#0f0;padding:16px;}' +
-    '#s{white-space:pre-wrap;}</style></head><body>' +
-    '<div id="s">STEP1: page loaded</div>' +
-    '<script>(function(){' +
-    'var el=document.getElementById("s");' +
-    'function log(m){el.textContent+="\n"+m;console.log("[callback-debug]",m);}' +
-    'var u=' + finalUrlJson + ';' +
-    'var h=' + hydrateUrlJson + ';' +
-    'var t=' + sealedJson + ';' +
-    'log("STEP2: token len="+t.length+" origin="+location.origin);' +
-    'log("STEP3: fetch -> "+h);' +
-    'log("STEP3b: page_origin="+location.origin+" same_origin="+(location.origin===new URL(h).origin));' +
-    'fetch(h,{method:"POST",credentials:"same-origin",' +
-    'headers:{"Content-Type":"application/json"},' +
-    'body:JSON.stringify({token:t})})' +
-    '.then(function(r){log("FETCH_OK status="+r.status);return r.json();})' +
-    '.then(function(d){log("FETCH_JSON "+JSON.stringify(d));})' +
-    '.catch(function(e){log("FETCH_ERR "+e.message+" (type="+e.name+")");})' +
-    '.finally(function(){' +
-    'log("STEP4: navigating in 4s -> "+u);' +
-    'setTimeout(function(){window.location.replace(u);},4000);' +
-    '});' +
-    'setTimeout(function(){log("TIMEOUT_8s: navigating now");window.location.replace(u);},8000);' +
-    '})()</script></body></html>'
-
-  const response = finalize(
-    new NextResponse(html, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-      },
-    })
+  // Store the sealed JWE in a short-lived in-process store and redirect to
+  // /api/auth/session-finalize, which reads it and sets the HttpOnly cookie.
+  // This avoids putting the large (~3800-byte) JWE in a Set-Cookie header on
+  // a navigation response — volcalb CDN rejects such responses with 502.
+  const tokenId = storePendingJwe(sealed)
+  const finalizeUrl = new URL(
+    `/api/auth/session-finalize?t=${tokenId}&next=${encodeURIComponent(destination)}`,
+    origin
   )
-  response.cookies.set(
-    E2B_SESSION_COOKIE,
-    sealed,
-    sessionCookieOptions(new URL(origin).host)
-  )
-  return response
+  return finalize(NextResponse.redirect(finalizeUrl))
 }
 
 function finalize(response: NextResponse): NextResponse {
