@@ -6,6 +6,7 @@ import { api } from '@/core/shared/clients/api'
 import { createRepoError, repoErrorFromHttp } from '@/core/shared/errors'
 import type { RequestScope } from '@/core/shared/repository-scope'
 import { err, ok, type RepoResult } from '@/core/shared/result'
+import { l } from '@/core/shared/clients/logger/logger'
 import type { TeamMember } from './models'
 
 type TeamsRepositoryDeps = {
@@ -136,6 +137,17 @@ export function createTeamsRepository(
       )
 
       if (!response.ok || error) {
+        l.error(
+          {
+            key: 'repositories:teams:add_member:api_error',
+            context: {
+              status: response.status,
+              teamId: teamId.data,
+              errorMessage: error?.message,
+            },
+          },
+          `addTeamMember failed: ${response.status} ${error?.message ?? '(no message)'}`
+        )
         return err(
           repoErrorFromHttp(
             response.status,

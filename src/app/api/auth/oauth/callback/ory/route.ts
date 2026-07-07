@@ -20,6 +20,7 @@ import {
   ORY_POST_LOGOUT_PATH,
 } from '@/core/server/auth/ory/signout'
 import { storePendingJwe } from '@/core/server/auth/ory/pending-tokens'
+import { decodeJwtClaims, readStringClaim } from '@/core/server/auth/ory/jwt-claims'
 import { l, serializeErrorForLog } from '@/core/shared/clients/logger/logger'
 import { relativeUrlSchema } from '@/core/shared/schemas/url'
 
@@ -112,12 +113,28 @@ export async function GET(request: NextRequest) {
   const bootstrapUserId = bootstrapResult.userId
   l.info({ key: 'oauth_callback:bootstrap_success', bootstrapUserId }, 'Bootstrap succeeded')
 
+  // Extract identityId (Kratos identity id) from the id_token before sealing.
+  // id_token is always a JWT per OIDC spec, so this decode is reliable even
+  // when Hydra issues opaque access tokens. Storing identityId in the cookie
+  // means the Hydra-only auth path never has to decode the access token itself.
+  const idClaims = tokens.idToken
+    ? decodeJwtClaims<Record<string, unknown>>(tokens.idToken)
+    : null
+  const identityId =
+    readStringClaim(idClaims, 'sub') ?? undefined
+
+  l.info(
+    { key: 'oauth_callback:identity', identityId, hasIdClaims: !!idClaims },
+    'Extracted identityId from id_token'
+  )
+
   const sealed = await sealSessionCookie({
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
     idToken: tokens.idToken,
     expiresAt: tokens.expiresAt,
     userId: bootstrapUserId,
+    identityId,
   })
 
   const parsedReturnTo = relativeUrlSchema.safeParse(flow.returnTo)

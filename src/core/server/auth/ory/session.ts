@@ -83,7 +83,10 @@ export async function getAuthContext(): Promise<AuthContext | null> {
 
 // Hydra-only fallback: derive auth context from the sealed e2b_session cookie.
 // Called when Kratos is absent (GET /sessions/whoami returns non-OK).
-// The cookie holds userId (public.users.id) written during OAuth bootstrap.
+// identityId resolution order:
+//   1. tokens.identityId  — stored at login from id_token.sub (always a JWT)
+//   2. JWT decode of access_token — works when Hydra issues JWT access tokens
+//   3. tokens.userId — last resort for opaque access tokens / old sessions
 async function readAuthContextFromSessionCookie(): Promise<AuthContext | null> {
   const tokens = await readSessionTokens()
   if (!tokens?.accessToken || !tokens.userId) return null
@@ -98,9 +101,19 @@ async function readAuthContextFromSessionCookie(): Promise<AuthContext | null> {
   const accessClaims = decodeJwtClaims<HydraJwtClaims>(tokens.accessToken)
 
   const sub =
+    tokens.identityId ??
     readStringClaim(accessClaims, 'sub') ??
-    readStringClaim(idClaims, 'sub')
+    readStringClaim(idClaims, 'sub') ??
+    tokens.userId  // opaque token fallback — sub unavailable from JWT decode
+
   if (!sub) return null
+
+  if (!tokens.identityId && !readStringClaim(accessClaims, 'sub')) {
+    l.warn(
+      { key: 'auth_provider:hydra_fallback:opaque_token', context: { usingUserIdAsSub: true } },
+      'Hydra access token is opaque and no identityId in cookie; using userId as identityId — re-login will fix this'
+    )
+  }
 
   const displayName =
     readStringClaim(idClaims, 'name') ??

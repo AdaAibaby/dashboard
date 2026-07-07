@@ -27,6 +27,9 @@ export type SessionTokens = {
   idToken?: string
   expiresAt: number
   userId?: string
+  // Kratos identity id (= Hydra JWT sub). Stored at login so the Hydra-only
+  // auth path never needs to decode the access token, which may be opaque.
+  identityId?: string
 }
 
 export type SessionCookieOptions = {
@@ -44,12 +47,12 @@ export type SessionCookieDeleteOptions = {
   domain?: string
 }
 
-// Only the access token (needed for API calls), expiresAt (for refresh checks),
-// and userId (required by session.ts validation) are stored in the cookie.
-// refreshToken and idToken are intentionally omitted to keep the cookie under
-// ~2 KB — volcalb CDN rejects HTTP responses with Set-Cookie headers > ~3.9 KB.
-// The Hydra access token has a ~1-year TTL so seamless refresh is not needed.
-// RP-initiated logout degrades to local-only when idToken is absent.
+// Stored fields: accessToken (API calls), expiresAt (refresh check), userId
+// (public.users.id — required by the Hydra-only auth path), identityId (Kratos
+// identity id / Hydra JWT sub — extracted from id_token at login so opaque
+// access tokens work), refreshToken (token rotation).
+// idToken is omitted: too large and not needed after the callback; RP-logout
+// degrades to local-only when absent.
 export async function sealSessionCookie(
   tokens: SessionTokens
 ): Promise<string> {
@@ -58,6 +61,8 @@ export async function sealSessionCookie(
     expiresAt: tokens.expiresAt,
   }
   if (tokens.userId) payload.userId = tokens.userId
+  if (tokens.identityId) payload.identityId = tokens.identityId
+  if (tokens.refreshToken) payload.refreshToken = tokens.refreshToken
   return new EncryptJWT(payload)
     .setProtectedHeader({ alg: KEY_ALGORITHM, enc: CONTENT_ENCRYPTION })
     .setIssuedAt()
@@ -115,7 +120,7 @@ export function resolveSessionCookieDomain(
 }
 
 function parseTokens(payload: Record<string, unknown>): SessionTokens | null {
-  const { accessToken, refreshToken, idToken, expiresAt, userId } = payload
+  const { accessToken, refreshToken, idToken, expiresAt, userId, identityId } = payload
   if (typeof accessToken !== 'string' || typeof expiresAt !== 'number') {
     return null
   }
@@ -126,5 +131,6 @@ function parseTokens(payload: Record<string, unknown>): SessionTokens | null {
     idToken: typeof idToken === 'string' ? idToken : undefined,
     expiresAt,
     userId: typeof userId === 'string' ? userId : undefined,
+    identityId: typeof identityId === 'string' ? identityId : undefined,
   }
 }
