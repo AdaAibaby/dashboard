@@ -1,4 +1,5 @@
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
+import { l } from '@/core/shared/clients/logger/logger'
 import type { NextRequest } from 'next/server'
 
 import { trpcAppRouter } from '@/core/server/api/routers'
@@ -10,8 +11,18 @@ import { createRequestObservabilityContext } from '@/core/shared/clients/logger/
  * the auth middleware (Kratos whoami + e2b_session), so the request is not
  * wrapped by any session helper here.
  */
-const handler = (req: NextRequest) =>
-  fetchRequestHandler({
+const handler = (req: NextRequest) => {
+  const hasCookie = req.headers.get('cookie')?.includes('e2b_session') ?? false
+  if (!hasCookie) {
+    l.warn(
+      {
+        key: 'trpc_handler:no_cookie',
+        context: { url: req.url, hasCookie },
+      },
+      'tRPC request has no e2b_session cookie'
+    )
+  }
+  return fetchRequestHandler({
     endpoint: '/api/trpc',
     req,
     router: trpcAppRouter,
@@ -27,5 +38,6 @@ const handler = (req: NextRequest) =>
         }),
       }),
   })
+}
 
 export { handler as GET, handler as POST }

@@ -9,18 +9,14 @@ import { buildOryLogoutUrl, ORY_POST_LOGOUT_PATH } from './signout'
 
 // Resolves the post-logout landing for the sign-out route.
 //
-// An explicit internal `returnTo` (reauth "Recover Account" → /recovery,
-// /settings sign-out → /sign-in) names where to go next. Hydra's RP-logout
-// can't honor it — post_logout_redirect_uri must be a pre-registered URI, so it
-// always lands on ORY_POST_LOGOUT_PATH and the path is dropped. signOut() has
-// already revoked the tokens + Kratos session (production accepts login with
-// remember=false, so Hydra holds no session of its own to end) and the route
-// clears the cookies, so we skip the Hydra round-trip and 302 straight to the
-// requested path.
+// An explicit internal `returnTo` (reauth, /settings sign-out, etc.) is
+// honored directly — no Hydra round-trip needed.
 //
-// The default full sign-out passes no `returnTo` and falls through to Hydra's
-// RP-initiated logout: the id_token lets Hydra end its OAuth2 session and the
-// delegated Kratos session, then return to post_logout_redirect_uri.
+// For the default full sign-out, we include the id_token_hint when available
+// so Hydra can end its OAuth2 session. When idToken is absent (not stored in
+// the JWE cookie in Hydra-only deployments where the admin API is unreachable),
+// we fall back to redirecting directly to home. The sign-in flow uses
+// `prompt=login` to force credential re-entry regardless of Hydra session state.
 export async function completeOrySignOut(
   origin = BASE_URL,
   returnTo?: string

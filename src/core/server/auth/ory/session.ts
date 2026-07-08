@@ -89,6 +89,21 @@ export async function getAuthContext(): Promise<AuthContext | null> {
 //   3. tokens.userId — last resort for opaque access tokens / old sessions
 async function readAuthContextFromSessionCookie(): Promise<AuthContext | null> {
   const tokens = await readSessionTokens()
+  l.info(
+    {
+      key: 'auth_provider:hydra_cookie_read',
+      context: {
+        hasTokens: !!tokens,
+        hasAccessToken: !!tokens?.accessToken,
+        hasUserId: !!tokens?.userId,
+        hasIdentityId: !!tokens?.identityId,
+        expiresAt: tokens?.expiresAt ?? 0,
+        now: Math.floor(Date.now() / 1000),
+        isExpired: tokens ? (tokens.expiresAt > 0 && Math.floor(Date.now() / 1000) > tokens.expiresAt) : null,
+      },
+    },
+    'Hydra cookie auth: token state'
+  )
   if (!tokens?.accessToken || !tokens.userId) return null
 
   const now = Math.floor(Date.now() / 1000)

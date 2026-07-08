@@ -6,14 +6,16 @@ import {
 
 export const ORY_POST_LOGOUT_PATH = '/'
 
-// Builds Hydra's RP-initiated logout URL. With the id_token as the hint Hydra
-// ends both its own OAuth2 session and (since it delegates login to Kratos) the
-// Kratos session, then returns the browser to post_logout_redirect_uri.
+// Builds Hydra's RP-initiated logout URL.
+// `idToken` is optional: when present, Hydra uses it to identify and end the
+// OAuth2 session. When absent (idToken not stored in the JWE cookie), Hydra
+// falls back to the browser's own Hydra session cookie — the session still
+// ends; the browser is redirected to post_logout_redirect_uri afterward.
 export async function buildOryLogoutUrl({
   idToken,
   origin,
 }: {
-  idToken: string
+  idToken?: string
   origin: string
 }): Promise<URL | null> {
   const issuer = process.env.ORY_HYDRA_PUBLIC_URL ?? process.env.ORY_SDK_URL
@@ -35,7 +37,9 @@ export async function buildOryLogoutUrl({
   const logoutUrl = new URL(
     `${issuer.replace(/\/$/, '')}/oauth2/sessions/logout`
   )
-  logoutUrl.searchParams.set('id_token_hint', idToken)
+  if (idToken) {
+    logoutUrl.searchParams.set('id_token_hint', idToken)
+  }
   logoutUrl.searchParams.set(
     'post_logout_redirect_uri',
     postLogoutUrl.toString()

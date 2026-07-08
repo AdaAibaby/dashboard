@@ -39,8 +39,9 @@ export function authorizationParamsForOryIntent(
   intent: OryAuthIntent
 ): OryAuthorizationParams {
   if (intent === 'signup') return { prompt: 'login registration' }
-  if (intent === 'reauth') return { prompt: 'login' }
-  return undefined
+  // 'signin' and 'reauth' both force Hydra to show the login form, ensuring a
+  // cleared Hydra session (from logout) is not silently resumed.
+  return { prompt: 'login' }
 }
 
 export function shouldCaptureOrySignupMetadata(intent: OryAuthIntent): boolean {
