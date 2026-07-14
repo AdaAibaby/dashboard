@@ -2,7 +2,7 @@
 set -e
 
 ENV_FILE="/mnt/nfs/dev/.env.dev"
-IMAGE_NAME="dashboard-prod"
+IMAGE_NAME="dashboard-dev"
 CONTAINER_NAME="dashboard-container-dev"
 
 echo "=== Reading env file: $ENV_FILE ==="
