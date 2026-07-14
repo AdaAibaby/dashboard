@@ -94,6 +94,8 @@ export async function refreshSessionTokens(
             : current.refreshToken,
         idToken:
           typeof body.id_token === 'string' ? body.id_token : current.idToken,
+        userId: current.userId,
+        identityId: current.identityId,
         expiresAt: absoluteExpiry(
           typeof body.expires_in === 'number' ? body.expires_in : undefined
         ),

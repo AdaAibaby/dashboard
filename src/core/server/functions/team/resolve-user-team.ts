@@ -8,6 +8,13 @@ import { createAdminUsersRepository } from '@/core/modules/users/admin-repositor
 import { createOryUserBootstrapRequest } from '@/core/server/auth/ory/dashboard-bootstrap'
 import { l } from '@/core/shared/clients/logger/logger'
 
+export class TeamApiError extends Error {
+  constructor() {
+    super('Failed to fetch user teams from API')
+    this.name = 'TeamApiError'
+  }
+}
+
 export async function resolveUserTeam(
   userId: string,
   accessToken: string
@@ -63,7 +70,7 @@ export async function resolveUserTeam(
       },
       'Failed to fetch user teams'
     )
-    return null
+    throw new TeamApiError()
   }
 
   if (teamsResult.data.length === 0) {

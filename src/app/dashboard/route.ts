@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { TAB_URL_MAP } from "@/configs/dashboard-tab-url-map"
 import { PROTECTED_URLS } from "@/configs/urls"
 import { getAuthContext, signOut } from "@/core/server/auth"
-import { resolveUserTeam } from "@/core/server/functions/team/resolve-user-team"
+import { resolveUserTeam, TeamApiError } from "@/core/server/functions/team/resolve-user-team"
 import { l } from "@/core/shared/clients/logger/logger"
 import { setTeamCookies } from "@/lib/utils/cookies"
 
@@ -47,10 +47,22 @@ export async function GET(request: NextRequest) {
     'Dashboard: auth context ok'
   )
 
-  const team = await resolveUserTeam(
-    authContext.user.id,
-    authContext.accessToken
-  )
+  let team
+  try {
+    team = await resolveUserTeam(
+      authContext.user.id,
+      authContext.accessToken
+    )
+  } catch (error) {
+    if (error instanceof TeamApiError) {
+      l.error(
+        { key: 'dashboard:teams_api_error', user_id: authContext.user.id },
+        'Teams API error on dashboard route, returning 503'
+      )
+      return new NextResponse('Service temporarily unavailable. Please try again.', { status: 503 })
+    }
+    throw error
+  }
 
   if (!team) {
     l.warn(
