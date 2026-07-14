@@ -30,7 +30,7 @@ docker run -d \
   --name "$CONTAINER_NAME" \
   -p 3003:3000 \
   -p 3031:3000 \
-  -v /mnt/nfs/gaomingxing/bak/dashboard/.env.dev:/app/config/env_file:ro \
+  -v /mnt/nfs/dev/.env.dev:/app/config/env_file:ro \
   -e BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 \
   -e RUN_MODE=prod \
   "$IMAGE_NAME"
