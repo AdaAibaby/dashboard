@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-ENV_FILE="/mnt/nfs/gaomingxing/bak/dashboard/.env.dev"
+ENV_FILE="/mnt/nfs/dev/.env.dev"
 IMAGE_NAME="dashboard-prod"
 CONTAINER_NAME="dashboard-container-dev"
 
