@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-ENV_FILE="/mnt/nfs/gaomingxing/bak/dashboard/.env.dev"
-IMAGE_NAME="dashboard-prod"
-CONTAINER_NAME="dashboard-container-dev"
+ENV_FILE="/mnt/nfs/prod/.env.prod"
+IMAGE_NAME="dashboard-sh-prod"
+CONTAINER_NAME="dashboard-sh-prod"
 
 echo "=== Reading env file: $ENV_FILE ==="
 BUILD_ARGS=""
@@ -19,7 +19,7 @@ while IFS= read -r line; do
 done < "$ENV_FILE"
 
 echo "=== Building production image: $IMAGE_NAME ==="
-docker build -t "$IMAGE_NAME" $BUILD_ARGS /home/sll/dashboard
+docker build -t "$IMAGE_NAME" $BUILD_ARGS /mnt/nfs/sll/dashboard
 
 echo "=== Stopping old container ==="
 docker stop "$CONTAINER_NAME" 2>/dev/null || true
@@ -30,7 +30,7 @@ docker run -d \
   --name "$CONTAINER_NAME" \
   -p 3003:3000 \
   -p 3031:3000 \
-  -v /mnt/nfs/gaomingxing/bak/dashboard/.env.dev:/app/config/env_file:ro \
+  -v /mnt/nfs/prod/.env.prod:/app/config/env_file:ro \
   -e BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 \
   -e RUN_MODE=prod \
   "$IMAGE_NAME"

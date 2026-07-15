@@ -66,7 +66,7 @@ const config: NextConfig = {
   },
   serverExternalPackages: ['pino'],
   trailingSlash: false,
-  allowedDevOrigins: ['dev-e2b.xiaobei.top'],
+  allowedDevOrigins: ['prod-e2b.xiaobei.top'],
   headers: async () => [
     {
       source: '/(.*)',

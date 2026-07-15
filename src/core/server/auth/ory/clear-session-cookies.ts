@@ -11,7 +11,7 @@ const ORY_IDENTITY_SESSION_COOKIE = /^ory_(kratos_)?session/
 // Resolves the public-facing host from NEXT_PUBLIC_SITE_URL so cookie deletion
 // uses the same domain scope that was used when setting the cookie. Inside
 // Docker the request host is localhost:3000, which doesn't match the domain
-// attribute (.dev-e2b.xiaobei.top) and would silently fail to clear the cookie.
+// attribute (.prod-e2b.xiaobei.top) and would silently fail to clear the cookie.
 function resolvePublicHost(request: NextRequest): string {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
   if (siteUrl) {
