@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { buildOryStartURL } from '@/core/server/auth/ory/build-start-url'
 import { Button } from '@/ui/primitives/button'
+import { PasswordLoginForm } from './PasswordLoginForm'
 
 type PageProps = {
   searchParams: Promise<{ returnTo?: string }>
@@ -27,9 +28,7 @@ export default async function Page({ searchParams }: PageProps) {
         <div className="flex-1 border-t border-stroke" />
       </div>
 
-      <Button asChild variant="secondary" className="w-full">
-        <Link href={oauthUrl}>使用邮箱和密码登录</Link>
-      </Button>
+      <PasswordLoginForm returnTo={returnTo} />
     </div>
   )
 }
