@@ -4,6 +4,7 @@ import type { Identity } from '@ory/client-fetch'
 import { z } from 'zod'
 import { l } from '@/core/shared/clients/logger/logger'
 import type { AuthUser } from '../types'
+import { isAdminUser } from './admin'
 
 // AuthUser.id is always public.users.id (the identity's external_id), never the
 // Kratos identity id. A provisioned user always has one; getAuthContext refuses
@@ -76,15 +77,19 @@ export function fromKratosSessionIdentity(identity: {
     identityId: identity.id,
     source: 'kratos_session',
   })
+  const email = readString(traits, 'email')
+  const name = readString(traits, 'name')
+  const id = requireExternalId(identity)
   return {
-    id: requireExternalId(identity),
+    id,
     identityId: identity.id,
-    email: readString(traits, 'email'),
-    name: readString(traits, 'name'),
+    email,
+    name,
     avatarUrl: readPublicPicture(identity.metadata_public),
     providers: [],
     canChangeEmail: false,
     canChangePassword: false,
+    isAdmin: isAdminUser({ id, name, email }),
   }
 }
 
@@ -122,9 +127,10 @@ export function fromOryIdentity(identity: Identity): AuthUser {
   )
   const hasOidcCredential = hasLinkedOidcCredential(identity.credentials?.oidc)
   const canChangePassword = hasPasswordCredential && !hasOidcCredential
+  const id = requireExternalId(identity)
 
   return {
-    id: requireExternalId(identity),
+    id,
     identityId: identity.id,
     email,
     name,
@@ -134,6 +140,7 @@ export function fromOryIdentity(identity: Identity): AuthUser {
     // settings/verification flows instead of patching traits directly.
     canChangeEmail: false,
     canChangePassword,
+    isAdmin: isAdminUser({ id, name, email }),
   }
 }
 

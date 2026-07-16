@@ -5,6 +5,7 @@ import { cookies, headers } from 'next/headers'
 import { cache } from 'react'
 import { PROTECTED_URLS } from '@/configs/urls'
 import { decodeJwtClaims, readStringClaim } from './jwt-claims'
+import { isAdminUser } from './admin'
 import { l, serializeErrorForLog } from '@/core/shared/clients/logger/logger'
 import type {
   AuthContext,
@@ -137,6 +138,10 @@ async function readAuthContextFromSessionCookie(): Promise<AuthContext | null> {
     readStringClaim(accessClaims, 'name') ??
     readStringClaim(accessClaims, 'preferred_username')
 
+  const email =
+    readStringClaim(idClaims, 'email') ??
+    readStringClaim(accessClaims, 'email')
+
   return {
     user: {
       id: tokens.userId,
@@ -147,6 +152,7 @@ async function readAuthContextFromSessionCookie(): Promise<AuthContext | null> {
       providers: ['oidc'],
       canChangeEmail: false,
       canChangePassword: false,
+      isAdmin: isAdminUser({ id: tokens.userId, name: displayName, email }),
     },
     accessToken: tokens.accessToken,
   }

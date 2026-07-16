@@ -9,4 +9,6 @@ export type AuthUser = {
   providers: string[]
   canChangeEmail: boolean
   canChangePassword: boolean
+  // Username/email is in the ADMIN_USERS allowlist; grants all-teams admin views.
+  isAdmin: boolean
 }

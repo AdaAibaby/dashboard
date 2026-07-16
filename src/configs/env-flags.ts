@@ -14,3 +14,17 @@ export const INCLUDE_DASHBOARD_FEEDBACK_SURVEY =
 
 export const INCLUDE_REPORT_ISSUE =
   process.env.NEXT_PUBLIC_INCLUDE_REPORT_ISSUE === '1'
+
+// Comma-separated allowlist of admin identifiers (username or email), matched
+// against the Kratos session identity to grant the all-teams admin views.
+export const ADMIN_USERS = (process.env.ADMIN_USERS ?? '')
+  .split(',')
+  .map((entry) => entry.trim().toLowerCase())
+  .filter(Boolean)
+
+// Comma-separated allowlist of admin user ids (public.users.id / Ory external_id),
+// the reliable admin key when SSO email/name are placeholder values.
+export const ADMIN_USER_IDS = (process.env.ADMIN_USER_IDS ?? '')
+  .split(',')
+  .map((entry) => entry.trim().toLowerCase())
+  .filter(Boolean)

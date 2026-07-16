@@ -4,6 +4,7 @@ import micromatch from 'micromatch'
 import { usePathname } from 'next/navigation'
 import { useMemo } from 'react'
 import { SIDEBAR_MAIN_LINKS, type SidebarNavItem } from '@/configs/sidebar'
+import { PROTECTED_URLS } from '@/configs/urls'
 
 import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { cn } from '@/lib/utils'
@@ -36,7 +37,7 @@ const createGroupedLinks = (links: SidebarNavItem[]): GroupedLinks => {
 }
 
 export default function DashboardSidebarContent() {
-  const { team } = useDashboard()
+  const { team, user } = useDashboard()
   const selectedTeamSlug = team.slug
 
   const pathname = usePathname()
@@ -56,6 +57,27 @@ export default function DashboardSidebarContent() {
 
   return (
     <SidebarContent className="overflow-x-hidden gap-0">
+      {user.isAdmin && (
+        <SidebarGroup>
+          <SidebarGroupLabel>Admin</SidebarGroupLabel>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname?.startsWith(PROTECTED_URLS.ADMIN_SANDBOXES)}
+                asChild
+                tooltip="All teams · Sandboxes"
+              >
+                <HoverPrefetchLink
+                  href={PROTECTED_URLS.ADMIN_SANDBOXES}
+                  onClick={isMobile ? () => setOpenMobile(false) : undefined}
+                >
+                  <span>All teams · Sandboxes</span>
+                </HoverPrefetchLink>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
+      )}
       {Object.entries(groupedNavLinks).map(([group, links], ix) => (
         <SidebarGroup key={group}>
           {group !== 'ungrouped' && (

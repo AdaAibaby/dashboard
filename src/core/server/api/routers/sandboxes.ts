@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { USE_MOCK_DATA } from '@/configs/env-flags'
 import {
@@ -6,11 +7,13 @@ import {
   MOCK_TEAM_METRICS_DATA,
   MOCK_TEAM_METRICS_MAX_DATA,
 } from '@/configs/mock-data'
+import type { Sandboxes } from '@/core/modules/sandboxes/models'
 import { createSandboxesRepository } from '@/core/modules/sandboxes/repository.server'
 import {
   GetTeamMetricsMaxSchema,
   GetTeamMetricsSchema,
 } from '@/core/modules/sandboxes/schemas'
+import { createUserTeamsRepository } from '@/core/modules/teams/user-teams-repository.server'
 import { throwTRPCErrorFromRepoError } from '@/core/server/adapters/errors'
 import { withTeamAuthedRequestRepository } from '@/core/server/api/middlewares/repository'
 import {
@@ -18,7 +21,11 @@ import {
   transformMetricsToClientMetrics,
 } from '@/core/server/functions/sandboxes/utils'
 import { createTRPCRouter } from '@/core/server/trpc/init'
-import { protectedTeamProcedure } from '@/core/server/trpc/procedures'
+import {
+  protectedProcedure,
+  protectedTeamProcedure,
+} from '@/core/server/trpc/procedures'
+import { l } from '@/core/shared/clients/logger/logger'
 
 const sandboxesRepositoryProcedure = protectedTeamProcedure.use(
   withTeamAuthedRequestRepository(
@@ -217,4 +224,69 @@ export const sandboxesRouter = createTRPCRouter({
     }),
 
   // MUTATIONS
+
+  // ADMIN
+  // Aggregates sandboxes across every team the caller belongs to. Admin access
+  // is granted by the ADMIN_USERS allowlist (see AuthUser.isAdmin).
+  getAllTeamsSandboxes: protectedProcedure.query(async ({ ctx }) => {
+    if (!ctx.user.isAdmin) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'Admin access required',
+      })
+    }
+
+    const accessToken = ctx.session.access_token
+
+    const userTeamsRepository = createUserTeamsRepository({ accessToken })
+    const teamsResult = await userTeamsRepository.listUserTeams()
+    if (!teamsResult.ok) {
+      throwTRPCErrorFromRepoError(teamsResult.error)
+    }
+
+    const teams = teamsResult.data.filter((team) => team.slug)
+
+    const perTeamResults = await Promise.all(
+      teams.map(async (team) => {
+        const repository = createSandboxesRepository({
+          accessToken,
+          teamId: team.id,
+        })
+        const result = await repository.listSandboxes()
+
+        if (!result.ok) {
+          l.error({
+            key: 'admin:get_all_teams_sandboxes:team_failed',
+            team_id: team.id,
+            error: result.error,
+          })
+          return { team, sandboxes: [] as Sandboxes }
+        }
+
+        return { team, sandboxes: result.data }
+      })
+    )
+
+    const sandboxes = perTeamResults.flatMap(({ team, sandboxes: rows }) =>
+      rows.map((sandbox) => ({
+        ...sandbox,
+        teamId: team.id,
+        teamName: team.name,
+        teamSlug: team.slug,
+      }))
+    )
+
+    const perTeam = perTeamResults.map(({ team, sandboxes: rows }) => ({
+      teamId: team.id,
+      teamName: team.name,
+      teamSlug: team.slug,
+      count: rows.length,
+    }))
+
+    return {
+      sandboxes,
+      perTeam,
+      total: sandboxes.length,
+    }
+  }),
 })

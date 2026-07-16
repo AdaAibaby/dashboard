@@ -14,6 +14,7 @@ export const AUTH_URLS = {
 
 export const PROTECTED_URLS = {
   DASHBOARD: '/dashboard',
+  ADMIN_SANDBOXES: '/dashboard/admin/sandboxes',
   ACCOUNT_SETTINGS: '/dashboard/account',
   RESET_PASSWORD: '/dashboard/account',
   NEW_TEAM: '/dashboard/teams/new',
