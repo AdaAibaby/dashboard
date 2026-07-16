@@ -5,8 +5,10 @@ import {
   type OryAuthIntent,
 } from '@/core/server/auth/ory/build-start-url'
 
-const INTENT_BY_PATH: Record<string, OryAuthIntent> = {
-  '/sign-in': 'signin',
+// Routes where unauthenticated users are immediately redirected to the OAuth flow.
+// /sign-in is intentionally excluded — it renders a custom landing page that lets
+// the user choose between SSO and email/password before entering the Ory flow.
+const OAUTH_REDIRECT_BY_PATH: Record<string, OryAuthIntent> = {
   '/sign-up': 'signup',
   '/forgot-password': 'signin',
 }
@@ -21,8 +23,6 @@ export function getAuthRouteRedirect(
 ): NextResponse | null {
   const base = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ?? request.url
   const path = normalizeAuthPath(request.nextUrl.pathname)
-  const intent = INTENT_BY_PATH[path] ?? null
-  if (!intent) return null
 
   // Already logged-in users visiting sign-in/forgot-password go straight to
   // the dashboard. sign-up always goes through the OAuth flow with
@@ -31,6 +31,9 @@ export function getAuthRouteRedirect(
     return NextResponse.redirect(new URL(PROTECTED_URLS.DASHBOARD, base))
   }
 
+  const intent = OAUTH_REDIRECT_BY_PATH[path] ?? null
+  if (!intent) return null
+
   const returnTo = request.nextUrl.searchParams.get('returnTo') ?? undefined
   const target = new URL(buildOryStartURL(intent, returnTo), base)
 
@@ -38,7 +41,7 @@ export function getAuthRouteRedirect(
 }
 
 export function getAuthIntentFromPath(pathname: string): OryAuthIntent | null {
-  return INTENT_BY_PATH[normalizeAuthPath(pathname)] ?? null
+  return OAUTH_REDIRECT_BY_PATH[normalizeAuthPath(pathname)] ?? null
 }
 
 export function normalizeAuthPath(pathname: string): string {
