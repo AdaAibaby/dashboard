@@ -1,11 +1,8 @@
 import 'server-only'
 
-import { cookies } from 'next/headers'
 import { BASE_URL } from '@/configs/urls'
-import { l, serializeErrorForLog } from '@/core/shared/clients/logger/logger'
 import { normalizeOryReturnTo } from './build-start-url'
-import { E2B_SESSION_COOKIE, openSessionCookie } from './session-cookie'
-import { buildOryLogoutUrl, ORY_POST_LOGOUT_PATH } from './signout'
+import { ORY_POST_LOGOUT_PATH } from './signout'
 
 // Resolves the post-logout landing for the sign-out route.
 //
@@ -26,25 +23,11 @@ export async function completeOrySignOut(
 
   const home = new URL(ORY_POST_LOGOUT_PATH, origin).toString()
 
-  let idToken: string | undefined
-  try {
-    const cookieStore = await cookies()
-    const tokens = await openSessionCookie(
-      cookieStore.get(E2B_SESSION_COOKIE)?.value
-    )
-    idToken = tokens?.idToken
-  } catch (error) {
-    l.warn(
-      {
-        key: 'oauth_signout:read_session:error',
-        error: serializeErrorForLog(error),
-      },
-      'failed to read e2b_session before sign-out'
-    )
-  }
-
-  if (!idToken) return home
-
-  const logoutUrl = await buildOryLogoutUrl({ idToken, origin })
-  return logoutUrl?.toString() ?? home
+  // revokeCurrentSession() (called by signOut before this) already revoked
+  // both the OAuth2 tokens and the Kratos session. The Hydra RP-initiated
+  // logout endpoint (/oauth2/sessions/logout) is unavailable in this env
+  // (returns 404), so we skip that round-trip and redirect home directly.
+  // The sign-in flow uses prompt=login, so Hydra SSO session state does
+  // not affect credential re-entry.
+  return home
 }

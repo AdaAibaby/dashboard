@@ -5,7 +5,7 @@ ENV_FILE="/mnt/nfs/dev/.env.dev"
 IMAGE_NAME="dashboard-dev"
 CONTAINER_NAME="dashboard-container-dev"
 
-echo "=== Reading env file: $ENV_FILE ==="
+echo "=== Reading env file: $ENV_FILE ==="ß
 BUILD_ARGS=""
 while IFS= read -r line; do
   # Skip comments and empty lines

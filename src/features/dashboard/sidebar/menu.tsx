@@ -81,7 +81,9 @@ export default function DashboardSidebarMenu() {
             align="start"
             sideOffset={4}
           >
-            <DashboardSidebarMenuTeams />
+            <div className="max-h-[min(60vh,320px)] overflow-y-auto">
+              <DashboardSidebarMenuTeams />
+            </div>
 
             <DropdownMenuItem
               className="h-9 gap-2.5 [&_svg]:size-5 font-sans prose-body-highlight"

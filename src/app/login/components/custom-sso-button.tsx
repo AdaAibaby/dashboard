@@ -5,6 +5,7 @@ import type { ComponentType, SVGProps } from 'react'
 import { GithubDark } from '@/components/ui/svgs/githubDark'
 import { GithubLight } from '@/components/ui/svgs/githubLight'
 import { Google } from '@/components/ui/svgs/google'
+import { XiaobeiLogo } from '@/components/ui/svgs/xiaobei'
 import { cn } from '@/lib/utils'
 import { Button } from '@/ui/primitives/button'
 
@@ -25,6 +26,7 @@ const PROVIDERS: Record<
 > = {
   github: { label: 'Continue with GitHub', Logo: GitHubLogo },
   google: { label: 'Continue with Google', Logo: Google },
+  xiaobei: { label: 'Continue with 小北', Logo: XiaobeiLogo },
 }
 
 // Ory exposes the provider id on node.attributes.value (the value it submits);
@@ -37,6 +39,7 @@ function resolveProvider(node: OryNodeSsoButtonProps['node']) {
 
   if (id.includes('github')) return PROVIDERS.github
   if (id.includes('google')) return PROVIDERS.google
+  if (id.includes('xiaobei') || id.includes('xiao-bei') || id.includes('xiao_bei')) return PROVIDERS.xiaobei
   return undefined
 }
 

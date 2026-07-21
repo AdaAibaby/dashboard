@@ -13,7 +13,7 @@ export function Body({
   const mode = useMode()
 
   return (
-    <body className={cn(mode, 'relative flex min-h-[100svh] flex-col')}>
+    <body className={cn(mode, 'relative flex min-h-[100svh] flex-col')} suppressHydrationWarning>
       <GTMBody />
       {children}
     </body>
